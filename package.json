@@ -1,0 +1,26 @@
+{
+  "name": "mti_cassandra_migration",
+  "version": "1.0.0",
+  "description": "Migración de datos desde Cassandra a Elasticsearch",
+  "main": "index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@elastic/elasticsearch": "6.8.0",
+    "@types/node": "8.10.66",
+    "cassandra-driver": "4.6.3",
+    "dotenv": "16.4.7",
+    "mongodb": "^6.14.2",
+    "redis": "^4.7.0",
+    "typescript": "3.9.10",
+    "uuid": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/dotenv": "8.2.3",
+    "nodemon": "1.19.4",
+    "ts-node": "8.10.2"
+  }
+}
