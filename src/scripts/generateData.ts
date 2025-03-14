@@ -1,68 +1,67 @@
-import { ThingData } from "../models";
-const dotenv = require("dotenv");
+import dotenv from "dotenv";
+import { ThingData } from "../models/thingData";
 dotenv.config();
 
-const { cassandraClient } = require("../config/cassandra");
-const { TimeUuid } = require("cassandra-driver").types;
+import { QueryOptions, types } from "cassandra-driver";
+import { cassandraClient } from "../config/cassandra";
+const { TimeUuid } = types;
 
+const NUM_RECORDS: number = 5_000_000;
+const BATCH_SIZE: number = 500;
+const MAX_RETRIES: number = 3;
+const CONCURRENT_BATCHES: number = 5;
+const TESTING = true;
+const DBNAME = TESTING ? "the_shire.thing_data_test" : "the_shire.thing_data";
 /**
- * Configuración del proceso de inserción
- */
-const NUM_RECORDS: number = 5_000_000;  // 📌 5M de registros
-const BATCH_SIZE: number = 500;  // 📌 Se reduce el batch para evitar sobrecarga
-const MAX_RETRIES: number = 3;  // 📌 Reintentos en caso de fallo masivo
-const CONCURRENT_BATCHES: number = 5;  // 📌 Evitar sobrecarga de memoria
-
-/**
- * Genera un identificador `thing_id` válido (TEXT)
+ * Generates a random thing_id (TEXT)
  */
 function getRandomThingId (): string {
   return `thing_${ Math.floor(Math.random() * 99999) }`;
 }
 
 /**
- * Genera una clave `key` válida (TEXT)
+ * Generates a random key (TEXT)
  */
 function getRandomKey (): string {
   return `sensor_${ Math.floor(Math.random() * 100) }`;
 }
 
 /**
- * Genera un `app_id` válido (ASCII)
+ * Generates a valid app_id (ASCII)
  */
 function getRandomAppId (): string {
   return `app${ Math.floor(Math.random() * 10) }`;
 }
 
 /**
- * Genera una ubicación geográfica aleatoria (`BLOB`)
+ * Generates a random geographic location (BLOB)
  */
 function getRandomGeo (): Buffer {
   return Buffer.from(JSON.stringify({ lat: 40.7128, lon: -74.0060 }));
 }
 
 /**
- * Genera un valor `BLOB` de tamaño seguro
+ * Generates a random BLOB value
  */
 function getRandomBlob (size = 16): Buffer {
   return Buffer.alloc(size, Math.floor(Math.random() * 256));
 }
 
 /**
- * Genera una dirección IP válida (`INET`)
+ * Generates a valid IP address (INET)
  */
 function getRandomIp (): string {
   return `${ Math.floor(Math.random() * 256) }.${ Math.floor(Math.random() * 256) }.${ Math.floor(Math.random() * 256) }.${ Math.floor(Math.random() * 256) }`;
 }
 
 /**
- * Inserta un batch en Cassandra con reintentos en caso de error
+ * Inserts a batch into Cassandra with retries in case of failure
  */
 async function insertBatch (records: ThingData[], attempt = 1): Promise<void> {
   const query = `
-    INSERT INTO the_shire.thing_data (thing_id, key, date_time, app_id, created_at, geo, ip, iv, model_id, value) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `;
+        INSERT INTO ${DBNAME} (thing_id, key, date_time, app_id, created_at, geo, ip, iv, model_id, value) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
   const batchQueries = records.map(record => ({
     query,
@@ -94,59 +93,39 @@ async function insertBatch (records: ThingData[], attempt = 1): Promise<void> {
 }
 
 /**
- * Estima la cantidad de registros insertados usando paginación eficiente
+ * Counts all records in Cassandra using efficient pagination
  */
-async function estimateRecordCount (): Promise<number> {
-  let total = 0;
-  let pagingState = null;
-  const pageSize = 5000; // 🔹 Se reduce la carga en la consulta
-
-  do {
-    const result: any = await cassandraClient.execute(
-      "SELECT thing_id FROM the_shire.thing_data;",
-      [],
-      { fetchSize: pageSize, pagingState }
-    );
-
-    total += result.rowLength;
-    pagingState = result.pagingState;
-
-  } while (pagingState);
-
-  console.log(`🔹 Estimación de registros insertados: ${ total.toLocaleString() }`);
-  return total;
-}
-async function countAllRecords() {
+async function countAllRecords (): Promise<number> {
   let totalRecords = 0;
   let pagingState = null;
-  const pageSize = 50000; // 🔹 Consultar en lotes de 50,000
+  const pageSize = 100000;
 
   do {
-      const result:any = await cassandraClient.execute(
-          "SELECT thing_id FROM the_shire.thing_data;",
-          [],
-          { fetchSize: pageSize, pagingState }
-      );
+    const options: QueryOptions = pagingState
+      ? { fetchSize: pageSize, pageState: pagingState }
+      : { fetchSize: pageSize };
 
-      totalRecords += result.rowLength;
-      pagingState = result.pagingState; // 🔄 Guarda el estado de paginación
+    const result: types.ResultSet = await cassandraClient.execute(
+      `SELECT thing_id FROM ${DBNAME};`,
+      [],
+      options
+    );
 
-      console.log(`📊 Registros contados hasta ahora: ${totalRecords.toLocaleString()}`);
+    totalRecords += result.rowLength;
+    pagingState = result.pageState;
+    console.log(`📊 Registros contados hasta ahora: ${ totalRecords.toLocaleString() }`);
+  } while (pagingState);
 
-  } while (pagingState); // 🔄 Sigue hasta que no haya más registros
-
-  console.log(`✅ Total de registros en Cassandra: ${totalRecords.toLocaleString()}`);
+  console.log(`✅ Total de registros en Cassandra: ${ totalRecords.toLocaleString() }`);
+  return totalRecords;
 }
+
 /**
- * Genera los datos y los inserta en Cassandra usando lotes concurrentes
+ * Generates data and inserts it into Cassandra using concurrent batches
  */
 async function generateData () {
   console.log("🚀 Verificando registros existentes...");
-
-  await countAllRecords();
-
-  const insertedRecords = await estimateRecordCount();
-  console.log(`📌 Registros ya insertados: ${ insertedRecords.toLocaleString() }`);
+  const insertedRecords = await countAllRecords();
 
   if (insertedRecords >= NUM_RECORDS) {
     console.log("✅ Ya se insertaron todos los registros. No es necesario continuar.");
@@ -154,29 +133,27 @@ async function generateData () {
   }
 
   console.log(`🔄 Continuando la inserción desde ${ insertedRecords.toLocaleString() } hasta ${ NUM_RECORDS.toLocaleString() }...`);
-
   let totalInserted = insertedRecords;
-  const startTime = Date.now(); // ⏱ Inicia el temporizador
+  const startTime = Date.now();
 
   while (totalInserted < NUM_RECORDS) {
     const batches = [];
-    const batchStartTime = Date.now(); // ⏱ Tiempo por lote
+    const batchStartTime = Date.now();
 
     for (let i = 0; i < CONCURRENT_BATCHES && totalInserted < NUM_RECORDS; i++) {
       const batch: ThingData[] = [];
-
       for (let j = 0; j < BATCH_SIZE && totalInserted < NUM_RECORDS; j++) {
         batch.push({
-          thing_id: getRandomThingId(), // ✅ `TEXT` seguro
-          key: getRandomKey(), // ✅ `TEXT` seguro
+          thing_id: getRandomThingId(),
+          key: getRandomKey(),
           date_time: TimeUuid.now(),
-          app_id: getRandomAppId(), // ✅ `ASCII` seguro
+          app_id: getRandomAppId(),
           created_at: new Date(),
-          geo: getRandomGeo(), // ✅ `BLOB` seguro
-          ip: getRandomIp(), // ✅ `INET` válido
-          iv: getRandomBlob(16), // ✅ `BLOB` seguro
-          model_id: Math.floor(Math.random() * 1000000), // ✅ `INT` seguro
-          value: getRandomBlob(16), // ✅ `BLOB` seguro
+          geo: getRandomGeo(),
+          ip: getRandomIp(),
+          iv: getRandomBlob(16),
+          model_id: Math.floor(Math.random() * 1000000),
+          value: getRandomBlob(16),
         });
         totalInserted++;
       }
@@ -186,24 +163,18 @@ async function generateData () {
     try {
       await Promise.all(batches);
       const batchEndTime = Date.now();
-      const batchDuration = ((batchEndTime - batchStartTime) / 1000).toFixed(2); // ⏱ Tiempo por lote
-      console.log(`✅ Insertados ${totalInserted.toLocaleString()} registros... ⏱ Duración del lote: ${batchDuration}s`);
+      const batchDuration = ((batchEndTime - batchStartTime) / 1000).toFixed(2);
+      console.log(`✅ Insertados ${ totalInserted.toLocaleString() } registros... ⏱ Duración del lote: ${ batchDuration }s`);
     } catch (error) {
       console.error("❌ Error en la inserción de lotes:", error);
       process.exit(1);
     }
   }
 
-  const endTime = Date.now(); // ⏱ Fin del temporizador
-  const totalTime = ((endTime - startTime) / 1000).toFixed(2); // ⏱ Tiempo total en segundos
-  const avgTimePerBatch = (parseFloat(totalTime) / (NUM_RECORDS / BATCH_SIZE)).toFixed(2); // ⏱ Promedio por lote
-  const recordsPerSecond = (NUM_RECORDS / parseFloat(totalTime)).toFixed(2); // 🔥 Registros por segundo
-
+  const endTime = Date.now();
+  const totalTime = ((endTime - startTime) / 1000).toFixed(2);
   console.log("🎉 Todos los datos han sido insertados correctamente en Cassandra.");
   console.log(`⏱ Tiempo total de ejecución: ${ totalTime }s`);
-  console.log(`⚡ Promedio por lote: ${ avgTimePerBatch }s`);
-  console.log(`📊 Registros por segundo: ${ recordsPerSecond } registros/s`);
-
   process.exit(0);
 }
 

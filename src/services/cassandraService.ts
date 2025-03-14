@@ -1,5 +1,5 @@
 import { cassandraClient } from "../config/cassandra";
-import { ThingData } from "../models/";
+import { ThingData } from "../models/thingData";
 
 const BATCH_SIZE = 100000; // Tamaño del lote
 

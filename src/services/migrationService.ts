@@ -1,14 +1,14 @@
 import { elasticsearchClient } from "../config/elasticsearch";
-import { getMongoCollection } from "../config/mongo";
-import { redisClient } from "../config/redis";
-import { ThingData } from "../models/";
+import { logEvent } from "../services/logService";
+import { ThingData } from "../models/thingData";
 import { fetchBatch, FetchResult } from "./cassandraService";
+import { monitorMigration, monitorMigrationBackground } from "../utils/monitor";
 
 const BATCH_SIZE = 500;
 const INDEX_NAME = "thing_data";
 
 /**
- * Transforma los datos de Cassandra al formato de Elasticsearch
+ * Transforms Cassandra records into Elasticsearch format.
  */
 function transformToElasticsearchFormat(records: ThingData[]): any[] {
     return records.reduce<any[]>((acc, record) => {
@@ -20,7 +20,7 @@ function transformToElasticsearchFormat(records: ThingData[]): any[] {
                 date_time: record.date_time,
                 app_id: record.app_id,
                 created_at: record.created_at,
-                geo: record.geo ? record.geo.toString("utf-8") : null, // Convertir BLOB a string (manejo seguro)
+                geo: record.geo ? record.geo.toString("utf-8") : null,
                 ip: record.ip,
                 iv: record.iv ? record.iv.toString("hex") : null,
                 model_id: record.model_id,
@@ -32,9 +32,9 @@ function transformToElasticsearchFormat(records: ThingData[]): any[] {
 }
 
 /**
- * Inserta los datos en Elasticsearch en modo bulk
+ * Inserts data into Elasticsearch using bulk indexing.
  */
-async function insertToElasticsearch(records: ThingData[]) {
+async function insertToElasticsearch(records: ThingData[], batchNumber: number) {
     if (records.length === 0) return;
 
     const bulkBody = transformToElasticsearchFormat(records);
@@ -44,25 +44,31 @@ async function insertToElasticsearch(records: ThingData[]) {
 
         if (response.body?.errors) {
             console.error("❌ Errores en la inserción de Elasticsearch", response.body.items);
-            await getMongoCollection().insertOne({ 
-                error: "Bulk insert failed", 
-                details: response.body.items, 
-                timestamp: new Date() 
+            await logEvent("error", batchNumber, records.length, undefined, {
+                message: "Bulk insert failed",
+                details: response.body.items,
             });
+        } else {
+            await logEvent("success", batchNumber, records.length);
         }
     } catch (error) {
-        console.error("❌ Error crítico en Elasticsearch", error);
-        await redisClient.set("migration_error", JSON.stringify({ error, timestamp: new Date() }));
+        const err = error as Error;
+        console.error("❌ Error crítico en Elasticsearch", err);
+        await logEvent("error", batchNumber, records.length, undefined, {
+            message: err.message,
+            stack: err.stack,
+        });
     }
 }
 
 /**
- * Proceso de migración de Cassandra a Elasticsearch
+ * Handles the migration process from Cassandra to Elasticsearch.
  */
 export async function migrateData() {
     console.log("🚀 Iniciando migración de datos...");
-    let pageState: string | undefined = undefined; // ✅ Inicializado correctamente
+    let pageState: string | undefined = undefined;
     let totalMigrated = 0;
+    let batchNumber = 0;
     const startTime = Date.now();
 
     while (true) {
@@ -70,28 +76,39 @@ export async function migrateData() {
         const fetchResult: FetchResult = await fetchBatch(pageState);
         const { rows, pageState: newPageState } = fetchResult;
 
-        if (!rows || rows.length === 0) break; // No hay más datos
+        if (!rows || rows.length === 0) break;
 
         console.log(`📦 Insertando ${rows.length} registros en Elasticsearch...`);
         try {
-            await insertToElasticsearch(rows);
+            await insertToElasticsearch(rows, batchNumber);
             totalMigrated += rows.length;
             console.log(`✅ Migrados ${totalMigrated} registros en total`);
         } catch (error) {
-            console.error("❌ Error en la migración de un lote", error);
-            await getMongoCollection().insertOne({ 
-                error: "Migration failed", 
-                details: error, 
-                timestamp: new Date() 
+            const err = error as Error;
+            console.error("❌ Error en la migración de un lote", err);
+            await logEvent("error", batchNumber, rows.length, undefined, {
+                message: err.message,
+                stack: err.stack,
             });
-            await redisClient.set("migration_error", JSON.stringify({ error, timestamp: new Date() }));
         }
 
-        if (!newPageState) break; // ✅ Si no hay más páginas, terminamos
-        pageState = newPageState; // ✅ Se actualiza correctamente
+        if (batchNumber % 5 === 0) {
+            await monitorMigration();
+        }
+
+        if (!newPageState) break;
+        pageState = newPageState;
+        batchNumber++;
     }
 
     const endTime = Date.now();
     const duration = ((endTime - startTime) / 1000).toFixed(2);
     console.log(`🎉 Migración completada en ${duration} segundos. Total registros migrados: ${totalMigrated}`);
+
+    await logEvent("success", batchNumber, totalMigrated, Number(duration), {
+        message: `Migración finalizada en ${duration} segundos`,
+    });
+
+    console.log("📊 Finalizando monitoreo...");
+    await monitorMigration();
 }
