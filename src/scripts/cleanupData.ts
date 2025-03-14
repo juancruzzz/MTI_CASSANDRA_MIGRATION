@@ -8,9 +8,9 @@ import { elasticsearchClient } from "../config/elasticsearch";
 async function cleanupRedis() {
     try {
         await redisClient.flushall();
-        console.log("🧹 Redis cleaned successfully.");
+        console.log("🧹 Redis limpiado correctamente.");
     } catch (error) {
-        console.error("❌ Error cleaning Redis:", error);
+        console.error("❌ Error al limpiar Redis:", error);
     }
 }
 
@@ -22,9 +22,9 @@ async function cleanupMongoDB() {
         await connectMongo();
         const collection = await getMongoCollection();
         await collection.deleteMany({});
-        console.log("🧹 MongoDB logs cleaned successfully.");
+        console.log("🧹 Logs de MongoDB eliminados correctamente.");
     } catch (error) {
-        console.error("❌ Error cleaning MongoDB:", error);
+        console.error("❌ Error al limpiar MongoDB:", error);
     }
 }
 
@@ -34,9 +34,9 @@ async function cleanupMongoDB() {
 async function cleanupElasticsearch() {
     try {
         await elasticsearchClient.indices.delete({ index: "thing_data" });
-        console.log("🧹 Elasticsearch index deleted successfully.");
+        console.log("🧹 Índice de Elasticsearch eliminado correctamente.");
     } catch (error) {
-        console.error("❌ Error cleaning Elasticsearch:", error);
+        console.error("❌ Error al limpiar Elasticsearch:", error);
     }
 }
 
@@ -44,11 +44,11 @@ async function cleanupElasticsearch() {
  * Runs all cleanup operations.
  */
 async function cleanupAll() {
-    console.log("🚀 Starting cleanup process...");
+    console.log("🚀 Iniciando proceso de limpieza...");
     await cleanupRedis();
     await cleanupMongoDB();
     await cleanupElasticsearch();
-    console.log("✅ Cleanup process completed.");
+    console.log("✅ Proceso de limpieza completado.");
     process.exit(0);
 }
 

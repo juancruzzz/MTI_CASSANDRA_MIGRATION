@@ -2,13 +2,14 @@ import { elasticsearchClient } from "../config/elasticsearch";
 import { logEvent } from "../services/logService";
 import { ThingData } from "../models/thingData";
 import { fetchBatch, FetchResult } from "./cassandraService";
-import { monitorMigration, monitorMigrationBackground } from "../utils/monitor";
+import { monitorMigration } from "../utils/monitor";
 
-const BATCH_SIZE = 500;
 const INDEX_NAME = "thing_data";
 
 /**
  * Transforms Cassandra records into Elasticsearch format.
+ * @param {ThingData[]} records - List of records to transform.
+ * @returns {any[]} Transformed records for bulk indexing in Elasticsearch.
  */
 function transformToElasticsearchFormat(records: ThingData[]): any[] {
     return records.reduce<any[]>((acc, record) => {
@@ -33,8 +34,11 @@ function transformToElasticsearchFormat(records: ThingData[]): any[] {
 
 /**
  * Inserts data into Elasticsearch using bulk indexing.
+ * @param {ThingData[]} records - List of records to insert.
+ * @param {number} batchNumber - Batch number for tracking.
+ * @returns {Promise<void>}
  */
-async function insertToElasticsearch(records: ThingData[], batchNumber: number) {
+async function insertToElasticsearch(records: ThingData[], batchNumber: number): Promise<void> {
     if (records.length === 0) return;
 
     const bulkBody = transformToElasticsearchFormat(records);
@@ -45,7 +49,7 @@ async function insertToElasticsearch(records: ThingData[], batchNumber: number) 
         if (response.body?.errors) {
             console.error("❌ Errores en la inserción de Elasticsearch", response.body.items);
             await logEvent("error", batchNumber, records.length, undefined, {
-                message: "Bulk insert failed",
+                message: "Falló la inserción en Elasticsearch",
                 details: response.body.items,
             });
         } else {
@@ -63,8 +67,9 @@ async function insertToElasticsearch(records: ThingData[], batchNumber: number) 
 
 /**
  * Handles the migration process from Cassandra to Elasticsearch.
+ * @returns {Promise<void>}
  */
-export async function migrateData() {
+export async function migrateData(): Promise<void> {
     console.log("🚀 Iniciando migración de datos...");
     let pageState: string | undefined = undefined;
     let totalMigrated = 0;
