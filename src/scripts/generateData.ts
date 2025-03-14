@@ -1,6 +1,4 @@
-import dotenv from "dotenv";
 import { ThingData } from "../models/thingData";
-dotenv.config();
 
 import { QueryOptions, types } from "cassandra-driver";
 import { cassandraClient } from "../config/cassandra";

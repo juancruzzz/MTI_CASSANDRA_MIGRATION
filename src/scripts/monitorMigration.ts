@@ -134,5 +134,4 @@ export async function monitorMigrationBackground() {
     }, 10000);
 }
 
-// Ejecutar monitoreo una vez
 monitorMigration();
