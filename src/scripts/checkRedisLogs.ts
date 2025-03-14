@@ -1,4 +1,5 @@
 import { redisClient } from "../config/redis";
+import chalk from 'chalk';
 
 /**
  * Retrieves and displays logs from Redis.
@@ -24,4 +25,23 @@ async function checkRedisLogs() {
     }
 }
 
-checkRedisLogs();
+/**
+ * Retrieves the number of failed batches in Redis.
+ */
+export async function checkRedisStatus(): Promise<void> {
+    try {
+        const failedBatches = await redisClient.lrange("failed_batches", 0, -1); // 🔹 Obtener todos los lotes fallidos
+        const failedCount = failedBatches.length; // 🔹 Contar cuántos hay
+
+        if (failedCount > 0) {
+            console.log(chalk.red(`⚠️ Redis → Lotes fallidos: ${failedCount}`));
+        } else {
+            console.log(chalk.green("✅ Redis → No hay lotes fallidos"));
+        }
+    } catch (error) {
+        console.error(chalk.red("❌ Error en Redis:"), error);
+    }
+}
+
+
+checkRedisStatus();
