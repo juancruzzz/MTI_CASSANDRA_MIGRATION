@@ -1,9 +1,9 @@
 import { Client } from "@elastic/elasticsearch";
 import { env } from "./env";
 
+/**
+ * Elasticsearch client instance configured with environment variables.
+ */
 export const elasticsearchClient = new Client({
-    node: env.elasticsearch.node,
-    ...(env.elasticsearch.user && env.elasticsearch.password
-        ? { auth: { username: env.elasticsearch.user, password: env.elasticsearch.password } }
-        : {})
+    node: env.elasticsearch.node
 });

@@ -1,6 +1,6 @@
 import { exec } from "child_process";
 import os from "os";
-import chalk from "chalk";
+import chalk from "chalk"; // Para colores en la consola
 import { elasticsearchClient } from "../config/elasticsearch";
 import { redisClient } from "../config/redis";
 import { connectMongo, getMongoCollection } from "../config/mongo";
@@ -15,6 +15,24 @@ export function logSystemUsage() {
 }
 
 /**
+ * Detects high resource usage and sends alerts.
+ */
+export async function detectResourceOverload() {
+    const cpuLoad = os.loadavg()[0];
+    const freeMemMB = os.freemem() / 1024 / 1024;
+
+    if (cpuLoad > 2) {
+        console.log(chalk.red(`🚨 ALERTA: Alto uso de CPU (${cpuLoad.toFixed(2)})`));
+        await redisClient.set("alert_cpu", `Alto uso de CPU: ${cpuLoad.toFixed(2)}`);
+    }
+
+    if (freeMemMB < 1000) {
+        console.log(chalk.red(`🚨 ALERTA: Baja memoria disponible (${freeMemMB.toFixed(2)} MB)`));
+        await redisClient.set("alert_ram", `Baja memoria: ${freeMemMB.toFixed(2)} MB`);
+    }
+}
+
+/**
  * Executes a shell command asynchronously and logs the output.
  */
 function runCommand(command: string, label: string) {
@@ -23,7 +41,7 @@ function runCommand(command: string, label: string) {
             console.error(chalk.red(`❌ ${label}: Error ejecutando ${command}`), error.message);
             return;
         }
-        console.log(chalk.green(`🛠️ ${label}: ${stdout.split("\n")[1] || stdout}`));
+        console.log(chalk.green(`🛠️ ${label}: ${stdout.split("\n")[1]}`));
     });
 }
 
@@ -46,13 +64,6 @@ export function checkCassandraPerformance() {
  */
 export async function checkElasticsearchStatus() {
     try {
-        const indexExists = await elasticsearchClient.indices.exists({ index: "thing_data" });
-
-        if (!indexExists.body) {
-            console.log(chalk.yellow("⚠️ Elasticsearch: El índice 'thing_data' no existe todavía."));
-            return;
-        }
-
         const { body } = await elasticsearchClient.count({ index: "thing_data" });
         console.log(chalk.magenta(`📌 Elasticsearch → Documentos insertados: ${body.count}`));
     } catch (error) {
@@ -67,8 +78,9 @@ export async function checkRedisStatus() {
     try {
         const failedBatches = await redisClient.llen("failed_batches");
 
+        // 🔥 Mostrar el número de lotes fallidos en lugar de "true"
         if (failedBatches > 0) {
-            console.log(chalk.red(`⚠️ Redis → Lotes fallidos: ${failedBatches}`));
+            console.log(chalk.red(`🔥 Redis → Lotes fallidos: ${failedBatches}`));
         } else {
             console.log(chalk.green("✅ Redis → No hay lotes fallidos"));
         }
@@ -76,8 +88,6 @@ export async function checkRedisStatus() {
         console.error(chalk.red("❌ Error en Redis:"), error);
     }
 }
-
-
 /**
  * Gets the count of logs in MongoDB.
  */
@@ -95,15 +105,10 @@ export async function checkMongoDBStatus() {
 /**
  * Saves monitoring data to MongoDB.
  */
-export async function saveMonitoringData() {
+export async function saveMonitoringData(data: any) {
     try {
         const collection = await getMongoCollection();
-        const data = {
-            timestamp: new Date(),
-            cpuLoad: os.loadavg()[0],
-            freeMemMB: os.freemem() / 1024 / 1024,
-        };
-        await collection.insertOne(data);
+        await collection.insertOne({ timestamp: new Date(), ...data });
         console.log(chalk.green("📊 Datos de monitoreo guardados en MongoDB"));
     } catch (error) {
         console.error(chalk.red("❌ Error al guardar monitoreo en MongoDB"), error);
@@ -115,21 +120,19 @@ export async function saveMonitoringData() {
  */
 export async function monitorMigration() {
     console.log(chalk.yellow("🔍 MONITOREO DE MIGRACIÓN..."));
-    logSystemUsage();
-    await checkElasticsearchStatus();
     await checkRedisStatus();
-    await checkMongoDBStatus();
-    checkCassandraStatus();
-    checkCassandraPerformance();
-    await saveMonitoringData();
+
 }
 
 /**
- * Runs monitoring every 30 seconds without blocking migration.
+ * Runs monitoring every 10 seconds without blocking migration.
  */
 export async function monitorMigrationBackground() {
     setInterval(async () => {
         console.log(chalk.green("🔍 Monitoreo en segundo plano..."));
         await monitorMigration();
-    }, 30000); // 🔄 Ahora cada 30 segundos
+    }, 10000);
 }
+
+// Ejecutar monitoreo una vez
+monitorMigration();

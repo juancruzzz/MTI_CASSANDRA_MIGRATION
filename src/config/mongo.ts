@@ -1,47 +1,51 @@
-// @ts-ignore
 import { MongoClient, Db, Collection } from "mongodb";
 import { env } from "./env";
 
-// Instancia del cliente de MongoDB
+/** MongoDB client instance */
 const mongoClient = new MongoClient(env.mongo.uri);
 
-// Variables para la base de datos y colección
+/** MongoDB database instance */
 let mongoDb: Db;
+
+/** MongoDB collection instance */
 let mongoCollection: Collection;
 
 /**
- * Conecta con MongoDB y asigna la base de datos y colección
+ * Connects to MongoDB and initializes the database and collection.
+ * @returns {Promise<void>}
  */
-export async function connectMongo() {
-  if (!mongoClient.isConnected()) {
+export async function connectMongo(): Promise<void> {
     try {
-      console.log("🔄 Conectando a MongoDB...");
-      await mongoClient.connect();
-      mongoDb = mongoClient.db(env.mongo.dbName);
-      mongoCollection = mongoDb.collection(env.mongo.collection);
-      console.log("✅ Conectado a MongoDB");
+        console.log("🔄 Conectando a MongoDB...");
+        await mongoClient.connect();
+        mongoDb = mongoClient.db(env.mongo.dbName);
+        mongoCollection = mongoDb.collection(env.mongo.collection);
+        console.log("✅ Conectado a MongoDB");
     } catch (error) {
-      console.error("❌ Error al conectar con MongoDB", error);
+        console.error("❌ Error al conectar con MongoDB:", error);
     }
-  }
 }
 
 /**
- * Obtiene la conexión a la base de datos
+ * Retrieves the MongoDB database instance.
+ * @returns {Db} The MongoDB database instance.
+ * @throws {Error} If the database connection has not been established.
  */
 export function getMongoDb(): Db {
-  if (!mongoDb) {
-    throw new Error("❌ No hay conexión a MongoDB. Llama a connectMongo() primero.");
-  }
-  return mongoDb;
+    if (!mongoDb) {
+        throw new Error("❌ No hay conexión a MongoDB. Llama a connectMongo() primero.");
+    }
+    return mongoDb;
 }
 
 /**
- * Obtiene la colección
+ * Retrieves the MongoDB collection instance.
+ * @returns {Collection} The MongoDB collection instance.
+ * @throws {Error} If the collection connection has not been established.
  */
 export function getMongoCollection(): Collection {
-  if (!mongoCollection) {
-    throw new Error("❌ No hay conexión a MongoDB. Llama a connectMongo() primero.");
-  }
-  return mongoCollection;
+    if (!mongoCollection) {
+        throw new Error("❌ No hay conexión a MongoDB. Llama a connectMongo() primero.");
+    }
+    return mongoCollection;
 }
